@@ -66,12 +66,13 @@ class Bullet:
 
 
 class Asteroid:
-    def __init__(self, position=None):
-        self.sprite = self.init_sprite()
+    def __init__(self, position=None, size=None):
         if position is not None:
             self.position = position
         else:
             self.position = self.get_random_position()
+        self.size = size
+        self.sprite = self.init_sprite()
         self.rect = self.sprite.get_rect(center=self.position)
         self.normalized_velocity = self.get_random_velocity()
         self.speed = random.random() * 4.5 + 0.5
@@ -93,10 +94,11 @@ class Asteroid:
         return pygame.Vector2(position)
 
     def init_sprite(self):
-        size = int(random.uniform(15, 60))
-        surface = pygame.Surface((size, size))
+        if self.size is None:
+            self.size = int(random.uniform(15, 90))
+        surface = pygame.Surface((self.size, self.size))
         color = (255, 255, 255)
-        pygame.draw.circle(surface, color, (size / 2, size / 2), size // 2, width=1)
+        pygame.draw.circle(surface, color, (self.size / 2, self.size / 2), self.size // 2, width=1)
         return surface
 
     def update_position(self):
@@ -208,11 +210,18 @@ class Game:
     def check_bullet_collisions(self):
         collided_asteroids = set()
         collided_bullets = set()
+        new_asteroids = []
         for i, asteroid in enumerate(self.asteroids):
             for j, bullet in enumerate(self.bullets):
                 if asteroid.rect.colliderect(bullet.rect):
                     collided_asteroids.add(i)
                     collided_bullets.add(j)
+                    if asteroid.size > 40:
+                        new_asteroids.extend([
+                                Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
+                                for _ in range(2)
+                            ]
+                        )
         self.asteroids = [
             asteroid
             for i, asteroid in enumerate(self.asteroids) if i not in collided_asteroids
@@ -221,6 +230,7 @@ class Game:
             bullet
             for j, bullet in enumerate(self.bullets) if j not in collided_bullets
         ]
+        self.asteroids.extend(new_asteroids)
 
     def check_player_collision(self):
         for asteroid in self.asteroids:
