@@ -1,5 +1,6 @@
 from enum import Enum
 import random
+import math
 
 import pygame
 
@@ -93,12 +94,31 @@ class Asteroid:
         )
         return pygame.Vector2(position)
 
+    def get_random_polygon(self, min_radius, max_radius, min_points=7, max_points=16, angle_step=5):
+        num_points = random.randint(min_points, max_points)
+        angles = sorted(random.sample(range(0, 360, angle_step), num_points))
+        points = []
+        for angle in angles:
+            radius = random.uniform(min_radius, max_radius)
+            x = math.cos(math.radians(angle)) * radius + max_radius
+            y = math.sin(math.radians(angle)) * radius + max_radius
+            points.append((x, y))
+        min_x = min(p[0] for p in points)
+        min_y = min(p[1] for p in points)
+        points = [(p[0] - min_x, p[1] - min_y) for p in points]
+        return points
+
     def init_sprite(self):
         if self.size is None:
             self.size = int(random.uniform(15, 90))
-        surface = pygame.Surface((self.size, self.size))
+        radius = self.size / 2
+        points = self.get_random_polygon(radius * 0.9, radius - 1)
+        max_x = max(p[0] for p in points)
+        max_y = max(p[1] for p in points)
+        surface = pygame.Surface((int(max_x + 1), int(max_y + 1)))  # adjust bounding rect
+        self.size = max(max_x, max_y)
         color = (255, 255, 255)
-        pygame.draw.circle(surface, color, (self.size / 2, self.size / 2), self.size // 2, width=1)
+        pygame.draw.polygon(surface, color, points, width=1)
         return surface
 
     def update_position(self):
@@ -113,10 +133,8 @@ class Asteroid:
 
 class PlayerSpaceship:
     def __init__(self, position):
-        # self.position = pygame.Vector2(position)
         self.sprite = self.init_sprite()
         self.rect = self.sprite.get_rect(center=position)
-        # self.rect = self.sprite.get_rect(topleft=position)
         self.orientation = 0
         self.normalized_velocity = pygame.Vector2(0, -1)
         self.speed = 0
@@ -155,18 +173,6 @@ class PlayerSpaceship:
         self.rect.center = (self.rect.center + self.normalized_velocity * self.speed)
         self.rect.center = wrap_coordinates(self.rect.center)
 
-    def wrap_coordinates(self, point):
-        x, y = point
-        if x < 0:
-            x = DISPLAY_PARAMS.width + x
-        elif x >= DISPLAY_PARAMS.width:
-            x = x - DISPLAY_PARAMS.width
-        if y < 0:
-            y = DISPLAY_PARAMS.height + y
-        elif y >= DISPLAY_PARAMS.height:
-            y = y - DISPLAY_PARAMS.height
-        return pygame.Vector2(x, y)
-
     def draw(self, screen):
         rotated = pygame.transform.rotate(self.sprite, self.orientation)
         self.rect = rotated.get_rect(center=self.rect.center)
@@ -175,6 +181,7 @@ class PlayerSpaceship:
 
 class Game:
     BULLET_COOLDOWN_MS = 300
+    NUM_INITIAL_ASTEROIDS = 7
 
     def __init__(self):
         pygame.init()
@@ -183,7 +190,7 @@ class Game:
         self.screen = pygame.display.set_mode((DISPLAY_PARAMS.width, DISPLAY_PARAMS.height))
         self.clock = pygame.time.Clock()
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
-        self.asteroids = [Asteroid() for _ in range(5)]
+        self.asteroids = [Asteroid() for _ in range(self.NUM_INITIAL_ASTEROIDS)]
         self.bullets = []
         self.last_bullet_time = -1
 
@@ -218,9 +225,9 @@ class Game:
                     collided_bullets.add(j)
                     if asteroid.size > 40:
                         new_asteroids.extend([
-                                Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
-                                for _ in range(2)
-                            ]
+                            Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
+                            for _ in range(2)
+                        ]
                         )
         self.asteroids = [
             asteroid
