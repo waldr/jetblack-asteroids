@@ -20,6 +20,23 @@ class GameState(Enum):
     EXITED = 4
 
 
+class Scoreboard:
+    def __init__(self, position):
+        self.font = pygame.font.Font(pygame.font.get_default_font(), 48)
+        self.position = position
+        self.score = 0
+
+    def get_score(self):
+        return self.score
+
+    def increment_score(self, delta=1):
+        self.score += delta
+
+    def draw(self, screen):
+        text_surface = self.font.render(f'{self.score}', True, (192, 0, 0))
+        screen.blit(text_surface, self.position)
+
+
 def wrap_coordinates(point):
     x, y = point
     if x < 0:
@@ -189,6 +206,7 @@ class Game:
         pygame.display.set_caption('jetblack')
         self.screen = pygame.display.set_mode((DISPLAY_PARAMS.width, DISPLAY_PARAMS.height))
         self.clock = pygame.time.Clock()
+        self.scoreboard = Scoreboard((10, 10))
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
         self.asteroids = [Asteroid() for _ in range(self.NUM_INITIAL_ASTEROIDS)]
         self.bullets = []
@@ -204,23 +222,22 @@ class Game:
 
     def draw_frame(self):
         self.screen.fill(DISPLAY_PARAMS.bg_color)
-        # pygame.draw.line(self.screen, (255, 0, 0),
-        #                  (0, DISPLAY_PARAMS.height / 2), (DISPLAY_PARAMS.width - 1, DISPLAY_PARAMS.height / 2))
-        # pygame.draw.line(self.screen, (255, 0, 0),
-        #                  (DISPLAY_PARAMS.width / 2, 0), (DISPLAY_PARAMS.width / 2, DISPLAY_PARAMS.height - 1))
         for asteroid in self.asteroids:
             asteroid.draw(self.screen)
         self.player.draw(self.screen)
         for bullet in self.bullets:
             bullet.draw(self.screen)
+        self.scoreboard.draw(self.screen)
 
-    def check_bullet_collisions(self):
+    def check_bullet_collisions(self) -> int:
+        destroyed_asteroids = 0
         collided_asteroids = set()
         collided_bullets = set()
         new_asteroids = []
         for i, asteroid in enumerate(self.asteroids):
             for j, bullet in enumerate(self.bullets):
                 if asteroid.rect.colliderect(bullet.rect):
+                    destroyed_asteroids += 1
                     collided_asteroids.add(i)
                     collided_bullets.add(j)
                     if asteroid.size > 40:
@@ -238,6 +255,7 @@ class Game:
             for j, bullet in enumerate(self.bullets) if j not in collided_bullets
         ]
         self.asteroids.extend(new_asteroids)
+        return destroyed_asteroids
 
     def check_player_collision(self):
         for asteroid in self.asteroids:
@@ -293,7 +311,8 @@ class Game:
             self.player.update_orientation(rotation_direction)
             self.player.update_position(is_accelerating)
             self.bullets = [bullet for bullet in self.bullets if not bullet.is_exhausted()]
-            self.check_bullet_collisions()
+            destroyed_asteroids = self.check_bullet_collisions()
+            self.scoreboard.increment_score(destroyed_asteroids)
             for bullet in self.bullets:
                 bullet.update_position()
             for asteroid in self.asteroids:
