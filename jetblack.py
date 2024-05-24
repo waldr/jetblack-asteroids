@@ -205,7 +205,7 @@ class PlayerSpaceship:
 
 class Game:
     BULLET_COOLDOWN_MS = 300
-    NUM_INITIAL_ASTEROIDS = 9
+    NUM_SPAWNED_ASTEROIDS = 9
 
     def __init__(self):
         pygame.init()
@@ -215,7 +215,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.scoreboard = Scoreboard((10, 10))
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
-        self.asteroids = self.spawn_asteroids(self.NUM_INITIAL_ASTEROIDS)
+        self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
         self.bullets = []
         self.last_bullet_time = -1
 
@@ -223,7 +223,7 @@ class Game:
         positions = self.get_valid_spawn_positions(num_asteroids)
         return [Asteroid(position) for position in positions]
 
-    def get_valid_spawn_positions(self, num_positions, min_distance=100):
+    def get_valid_spawn_positions(self, num_positions, min_distance=200):
         new_positions = []
         tabu_positions = [pygame.Vector2(self.player.get_position())]
         while len(new_positions) < num_positions:
@@ -342,6 +342,8 @@ class Game:
             self.draw_frame()
             if self.check_player_collision():
                 self.game_state = GameState.GAME_OVER
+            elif not self.asteroids:
+                self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
         if self.game_state == GameState.GAME_OVER:
             self.show_game_over()
             if pygame.key.get_pressed()[pygame.K_r]:
