@@ -21,6 +21,27 @@ class GameState(Enum):
     RESTARTING = 5
 
 
+def wrap_coordinates(point):
+    x, y = point
+    if x < 0:
+        x = DISPLAY_PARAMS.width + x
+    elif x >= DISPLAY_PARAMS.width:
+        x = x - DISPLAY_PARAMS.width
+    if y < 0:
+        y = DISPLAY_PARAMS.height + y
+    elif y >= DISPLAY_PARAMS.height:
+        y = y - DISPLAY_PARAMS.height
+    return pygame.Vector2(x, y)
+
+
+def get_random_position():
+    position = (
+        random.random() * DISPLAY_PARAMS.width - 1,
+        random.random() * DISPLAY_PARAMS.height - 1,
+    )
+    return pygame.Vector2(position)
+
+
 class Scoreboard:
     def __init__(self, position):
         self.font = pygame.font.Font(pygame.font.get_default_font(), 48)
@@ -36,19 +57,6 @@ class Scoreboard:
     def draw(self, screen):
         text_surface = self.font.render(f'{self.score}', True, (192, 0, 0))
         screen.blit(text_surface, self.position)
-
-
-def wrap_coordinates(point):
-    x, y = point
-    if x < 0:
-        x = DISPLAY_PARAMS.width + x
-    elif x >= DISPLAY_PARAMS.width:
-        x = x - DISPLAY_PARAMS.width
-    if y < 0:
-        y = DISPLAY_PARAMS.height + y
-    elif y >= DISPLAY_PARAMS.height:
-        y = y - DISPLAY_PARAMS.height
-    return pygame.Vector2(x, y)
 
 
 class Bullet:
@@ -89,7 +97,7 @@ class Asteroid:
         if position is not None:
             self.position = position
         else:
-            self.position = self.get_random_position()
+            self.position = get_random_position()
         self.size = size
         self.sprite = self.init_sprite()
         self.rect = self.sprite.get_rect(center=self.position)
@@ -104,13 +112,6 @@ class Asteroid:
         )
         velocity = pygame.Vector2(velocity).normalize()
         return velocity
-
-    def get_random_position(self):
-        position = (
-            random.random() * DISPLAY_PARAMS.width - 1,
-            random.random() * DISPLAY_PARAMS.height - 1,
-        )
-        return pygame.Vector2(position)
 
     def get_random_polygon(self, min_radius, max_radius, min_points=7, max_points=16, angle_step=5):
         num_points = random.randint(min_points, max_points)
@@ -169,6 +170,9 @@ class PlayerSpaceship:
         pygame.draw.polygon(surface, color, triangle_points, width=1)
         return surface
 
+    def get_position(self):
+        return self.rect.center
+
     def get_new_bullet_params(self):
         normalized_velocity = pygame.Vector2(0, -1).rotate(-self.orientation)
         position = self.rect.center + normalized_velocity * 50
@@ -199,7 +203,7 @@ class PlayerSpaceship:
 
 class Game:
     BULLET_COOLDOWN_MS = 300
-    NUM_INITIAL_ASTEROIDS = 7
+    NUM_INITIAL_ASTEROIDS = 9
 
     def __init__(self):
         pygame.init()
@@ -209,9 +213,23 @@ class Game:
         self.clock = pygame.time.Clock()
         self.scoreboard = Scoreboard((10, 10))
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
-        self.asteroids = [Asteroid() for _ in range(self.NUM_INITIAL_ASTEROIDS)]
+        self.asteroids = self.spawn_asteroids(self.NUM_INITIAL_ASTEROIDS)
         self.bullets = []
         self.last_bullet_time = -1
+
+    def spawn_asteroids(self, num_asteroids):
+        positions = self.get_valid_spawn_positions(num_asteroids)
+        return [Asteroid(position) for position in positions]
+
+    def get_valid_spawn_positions(self, num_positions, min_distance=100):
+        new_positions = []
+        tabu_positions = [pygame.Vector2(self.player.get_position())]
+        while len(new_positions) < num_positions:
+            candidate_pos = get_random_position()
+            if all(candidate_pos.distance_to(tabu_pos) >= min_distance for tabu_pos in tabu_positions):
+                tabu_positions.append(candidate_pos)
+                new_positions.append(candidate_pos)
+        return new_positions
 
     def get_rotation_direction(self, pressed_keys):
         if pressed_keys[pygame.K_a]:
