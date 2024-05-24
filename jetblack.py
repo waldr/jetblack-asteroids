@@ -138,6 +138,7 @@ class Asteroid:
         self.size = max(max_x, max_y)
         color = (255, 255, 255)
         pygame.draw.polygon(surface, color, points, width=1)
+        surface.set_colorkey((0, 0, 0))
         return surface
 
     def update_position(self):
@@ -168,6 +169,7 @@ class PlayerSpaceship:
             (w - 1, h - 1)
         ]
         pygame.draw.polygon(surface, color, triangle_points, width=1)
+        surface.set_colorkey((0, 0, 0))
         return surface
 
     def get_position(self):
@@ -277,8 +279,9 @@ class Game:
         return destroyed_asteroids
 
     def check_player_collision(self):
+        smaller_rect = self.player.rect.copy().scale_by(0.5)
         for asteroid in self.asteroids:
-            if asteroid.rect.colliderect(self.player.rect):
+            if asteroid.rect.colliderect(smaller_rect):
                 return True
         return False
 
