@@ -18,6 +18,7 @@ class GameState(Enum):
     RUNNING = 2
     GAME_OVER = 3
     EXITED = 4
+    RESTARTING = 5
 
 
 class Scoreboard:
@@ -264,21 +265,22 @@ class Game:
         return False
 
     def show_game_over(self):
-        font = pygame.font.Font(pygame.font.get_default_font(), 36)
+        font_size = 32
+        font = pygame.font.Font(pygame.font.get_default_font(), font_size)
         lines = [
             'GAME OVER...',
+            '(press R to restart)'
         ]
         for i, line in enumerate(lines):
             text_surface = font.render(
                 line,
                 True,
                 (255, 0, 0),
-                (0, 0, 0)
             )
             text_rect = text_surface.get_rect(
                 center=(
                     DISPLAY_PARAMS.width // 2,
-                    DISPLAY_PARAMS.height // 2
+                    DISPLAY_PARAMS.height // 2 + font_size * (i - 1)
                 )
             )
             self.screen.blit(text_surface, text_rect)
@@ -291,7 +293,6 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (
                     event.type == pygame.KEYDOWN and pygame.key.get_pressed()[pygame.K_q]):
-                pygame.quit()
                 self.game_state = GameState.EXITED
                 return
 
@@ -322,15 +323,24 @@ class Game:
                 self.game_state = GameState.GAME_OVER
         if self.game_state == GameState.GAME_OVER:
             self.show_game_over()
+            if pygame.key.get_pressed()[pygame.K_r]:
+                self.game_state = GameState.RESTARTING
         pygame.display.set_caption(f'jetblack (FPS: {self.clock.get_fps():.2f})')
         pygame.display.update()
         self.clock.tick(DISPLAY_PARAMS.max_fps)
 
     def run(self):
-        while not self.game_state == GameState.EXITED:
+        while self.game_state not in [GameState.EXITED, GameState.RESTARTING]:
             self.game_loop()
+        if self.game_state == GameState.RESTARTING:
+            return True
+        else:
+            return False
 
 
 if __name__ == '__main__':
-    game = Game()
-    game.run()
+    while True:
+        game = Game()
+        restart = game.run()
+        if not restart:
+            break
