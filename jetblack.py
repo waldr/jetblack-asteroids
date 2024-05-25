@@ -1,6 +1,7 @@
 from enum import Enum
 import random
 import math
+from pathlib import Path
 
 import pygame
 
@@ -40,6 +41,28 @@ def get_random_position():
         random.random() * DISPLAY_PARAMS.height - 1,
     )
     return pygame.Vector2(position)
+
+
+class SoundMixer:
+    def __init__(self):
+        pygame.mixer.init()
+        self.samples = self.init_samples()
+
+    def init_samples(self):
+        samples = dict()
+        samples['shooting'] = pygame.mixer.Sound(Path('sounds') / 'shooting_1.wav')
+        samples['explosion_small'] = pygame.mixer.Sound(Path('sounds') / 'explosion_1.wav')
+        samples['explosion_large'] = pygame.mixer.Sound(Path('sounds') / 'explosion_2.wav')
+        return samples
+
+    def play_shooting(self):
+        self.samples['shooting'].play()
+
+    def play_explosion(self, size=None):
+        if size is None or size < 40:
+            self.samples['explosion_small'].play()
+        else:
+            self.samples['explosion_large'].play()
 
 
 class Scoreboard:
@@ -212,6 +235,7 @@ class Game:
         self.game_state = GameState.STARTING
         pygame.display.set_caption('jetblack')
         self.screen = pygame.display.set_mode((DISPLAY_PARAMS.width, DISPLAY_PARAMS.height))
+        self.sound_mixer = SoundMixer()
         self.clock = pygame.time.Clock()
         self.scoreboard = Scoreboard((10, 10))
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
@@ -251,14 +275,14 @@ class Game:
         self.scoreboard.draw(self.screen)
 
     def check_bullet_collisions(self) -> int:
-        destroyed_asteroids = 0
+        destroyed_asteroid_sizes = []
         collided_asteroids = set()
         collided_bullets = set()
         new_asteroids = []
         for i, asteroid in enumerate(self.asteroids):
             for j, bullet in enumerate(self.bullets):
                 if asteroid.rect.colliderect(bullet.rect):
-                    destroyed_asteroids += 1
+                    destroyed_asteroid_sizes.append(asteroid.size)
                     collided_asteroids.add(i)
                     collided_bullets.add(j)
                     if asteroid.size > 40:
@@ -276,7 +300,7 @@ class Game:
             for j, bullet in enumerate(self.bullets) if j not in collided_bullets
         ]
         self.asteroids.extend(new_asteroids)
-        return destroyed_asteroids
+        return destroyed_asteroid_sizes
 
     def check_player_collision(self):
         smaller_rect = self.player.rect.copy().scale_by(0.5)
@@ -330,11 +354,14 @@ class Game:
         elif self.game_state == GameState.RUNNING:
             if is_shooting:
                 self.bullets.append(Bullet(*self.player.get_new_bullet_params()))
+                self.sound_mixer.play_shooting()
             self.player.update_orientation(rotation_direction)
             self.player.update_position(is_accelerating)
             self.bullets = [bullet for bullet in self.bullets if not bullet.is_exhausted()]
-            destroyed_asteroids = self.check_bullet_collisions()
-            self.scoreboard.increment_score(destroyed_asteroids)
+            destroyed_asteroid_sizes = self.check_bullet_collisions()
+            self.scoreboard.increment_score(len(destroyed_asteroid_sizes))
+            if destroyed_asteroid_sizes:
+                self.sound_mixer.play_explosion(max(size for size in destroyed_asteroid_sizes))
             for bullet in self.bullets:
                 bullet.update_position()
             for asteroid in self.asteroids:
@@ -342,6 +369,7 @@ class Game:
             self.draw_frame()
             if self.check_player_collision():
                 self.game_state = GameState.GAME_OVER
+                self.sound_mixer.play_explosion()
             elif not self.asteroids:
                 self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
         if self.game_state == GameState.GAME_OVER:
