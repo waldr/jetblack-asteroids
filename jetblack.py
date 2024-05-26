@@ -181,6 +181,7 @@ class PlayerSpaceship:
         self.orientation = 0
         self.normalized_velocity = pygame.Vector2(0, -1)
         self.speed = 0
+        self.is_dead = False
 
     def init_sprite(self):
         w, h = 30, 45
@@ -226,6 +227,35 @@ class PlayerSpaceship:
         screen.blit(rotated, self.rect)
 
 
+class Debris:
+    SPEED = 1
+    ROTATION_SPEED = 1
+
+    def __init__(self, initial_position, num_pieces=6, size=20):
+        self.num_pieces = num_pieces
+        self.initial_position = pygame.Vector2(initial_position)
+        self.pieces = self.generate_pieces()
+        self.size = size
+
+    def generate_pieces(self):
+        pieces = []
+        for _ in range(self.num_pieces):
+            orientation = random.random() * 360
+            velocity = pygame.Vector2(0, -1).rotate(-random.random() * 360)
+            pieces.append(dict(position=self.initial_position, orientation=orientation, velocity=velocity))
+        return pieces
+
+    def update(self):
+        for piece in self.pieces:
+            piece['position'] = piece['position'] + piece['velocity'] * self.SPEED
+            piece['orientation'] = (piece['orientation'] + self.ROTATION_SPEED) % 360
+
+    def draw(self, screen):
+        for piece in self.pieces:
+            segment = pygame.Vector2(0, -1).rotate(-piece['orientation']) * self.size / 2
+            pygame.draw.line(screen, (255, 255, 255), piece['position'] + segment, piece['position'] - segment)
+
+
 class Game:
     BULLET_COOLDOWN_MS = 300
     NUM_SPAWNED_ASTEROIDS = 9
@@ -242,6 +272,7 @@ class Game:
         self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
         self.bullets = []
         self.last_bullet_time = -1
+        self.debris = None
 
     def spawn_asteroids(self, num_asteroids):
         positions = self.get_valid_spawn_positions(num_asteroids)
@@ -269,7 +300,10 @@ class Game:
         self.screen.fill(DISPLAY_PARAMS.bg_color)
         for asteroid in self.asteroids:
             asteroid.draw(self.screen)
-        self.player.draw(self.screen)
+        if not self.player.is_dead:
+            self.player.draw(self.screen)
+        if self.debris is not None:
+            self.debris.draw(self.screen)
         for bullet in self.bullets:
             bullet.draw(self.screen)
         self.scoreboard.draw(self.screen)
@@ -370,9 +404,13 @@ class Game:
             if self.check_player_collision():
                 self.game_state = GameState.GAME_OVER
                 self.sound_mixer.play_explosion()
+                self.player.is_dead = True
+                self.debris = Debris(self.player.get_position())
             elif not self.asteroids:
                 self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
         if self.game_state == GameState.GAME_OVER:
+            self.debris.update()
+            self.draw_frame()
             self.show_game_over()
             if pygame.key.get_pressed()[pygame.K_r]:
                 self.game_state = GameState.RESTARTING
