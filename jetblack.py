@@ -43,6 +43,14 @@ def get_random_position():
     return pygame.Vector2(position)
 
 
+def get_random_velocity():
+    normalized_velocity = pygame.Vector2(
+        2 * random.random() - 1,
+        2 * random.random() - 1
+    ).normalize()
+    return normalized_velocity
+
+
 class SoundMixer:
     def __init__(self):
         pygame.mixer.init()
@@ -83,19 +91,20 @@ class Scoreboard:
 
 
 class Bullet:
-    def __init__(self, position, normalized_velocity):
+    def __init__(self, position, normalized_velocity, color=(0, 192, 0), size=5, speed=10):
         self.life_counter = 120  # in frames
+        self.color = color
+        self.size = size
+        self.speed = speed
         self.sprite = self.init_sprite()
         self.position = position
         self.rect = self.sprite.get_rect(center=self.position)
         self.normalized_velocity = normalized_velocity
-        self.speed = 10
 
     def init_sprite(self):
-        size = 5
+        size = self.size
         surface = pygame.Surface((size, size))
-        color = (192, 0, 0)
-        pygame.draw.circle(surface, color, (size / 2, size / 2), size // 2)
+        pygame.draw.circle(surface, self.color, (size / 2, size / 2), size // 2)
         return surface
 
     def update_position(self):
@@ -205,11 +214,11 @@ class PlayerSpaceship:
         return position, normalized_velocity
 
     def update_orientation(self, rotation_direction):
-        angular_velocity = 5
+        angular_velocity = 4.5
         self.orientation = (self.orientation + (rotation_direction * angular_velocity)) % 360
 
     def update_position(self, is_accelerating):
-        max_speed = 8
+        max_speed = 7
         if is_accelerating:
             a = pygame.Vector2(0, -1).rotate(-self.orientation)
         else:
@@ -256,8 +265,74 @@ class Debris:
             pygame.draw.line(screen, (255, 255, 255), piece['position'] + segment, piece['position'] - segment)
 
 
+class EnemySaucer:
+    def __init__(self, position):
+        self.sprite = self.init_sprite()
+        self.position = position
+        self.rect = self.sprite.get_rect(center=position)
+        self.normalized_velocity = pygame.Vector2(1, 0)
+        self.speed = 3
+
+    def init_sprite(self):
+        w, h = 60, 30
+        surface = pygame.Surface((w, h))
+        color = (192, 0, 0)
+        bottom_points = [
+            (0, (2 / 3) * h),
+            (0.15 * w, h - 1),
+            (w - 1 - 0.15 * w, h - 1),
+            (w - 1, (2 / 3) * h),
+            (0, (2 / 3) * h),
+        ]
+        middle_points = [
+            (0, (2 / 3) * h),
+            (0.3 * w, (1 / 3) * h),
+            (w - 1 - 0.3 * w, (1 / 3) * h),
+            (w - 1, (2 / 3) * h),
+        ]
+        top_points = [
+            (0.3 * w, (1 / 3) * h),
+            (0.4 * w, 0),
+            (w - 1 - 0.4 * w, 0),
+            (w - 1 - 0.3 * w, (1 / 3) * h),
+        ]
+        pygame.draw.polygon(surface, color, bottom_points, width=1)
+        pygame.draw.polygon(surface, color, middle_points, width=1)
+        pygame.draw.polygon(surface, color, top_points, width=1)
+        surface.set_colorkey((0, 0, 0))
+        return surface
+
+    def get_position(self):
+        return self.rect.center
+
+    def maybe_shoot(self, target_position):
+        if random.random() > 0.01:
+            return None
+        position = pygame.Vector2(self.rect.center)
+        normalized_velocity = (target_position - position).normalize()
+        return position, normalized_velocity
+
+    def get_new_bullet_params(self):
+        normalized_velocity = get_random_velocity()
+        position = self.rect.center + normalized_velocity * 50
+        return position, normalized_velocity
+
+    def update_position(self):
+        if random.random() < 0.015:  # randomly change direction
+            self.normalized_velocity = get_random_velocity()
+        position = self.position + self.normalized_velocity * self.speed
+        position = wrap_coordinates(position)
+        self.position = position
+        self.rect.center = position
+
+    def draw(self, screen):
+        self.rect = self.sprite.get_rect(center=self.rect.center)
+        screen.blit(self.sprite, self.rect)
+
+
 class Game:
     BULLET_COOLDOWN_MS = 300
+    SAUCER_RESPAWN_COOLDOWN_MS = 15000
     NUM_SPAWNED_ASTEROIDS = 9
 
     def __init__(self):
@@ -269,10 +344,13 @@ class Game:
         self.clock = pygame.time.Clock()
         self.scoreboard = Scoreboard((10, 10))
         self.player = PlayerSpaceship(pygame.Vector2(DISPLAY_PARAMS.width, DISPLAY_PARAMS.height) / 2)
-        self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
-        self.bullets = []
-        self.last_bullet_time = -1
         self.debris = None
+        self.player_bullets = []
+        self.last_bullet_time = -1
+        self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
+        self.saucer = None
+        self.last_saucer_death_time = pygame.time.get_ticks()
+        self.saucer_bullets = []
 
     def spawn_asteroids(self, num_asteroids):
         positions = self.get_valid_spawn_positions(num_asteroids)
@@ -300,25 +378,34 @@ class Game:
         self.screen.fill(DISPLAY_PARAMS.bg_color)
         for asteroid in self.asteroids:
             asteroid.draw(self.screen)
+        if self.saucer is not None:
+            self.saucer.draw(self.screen)
         if not self.player.is_dead:
             self.player.draw(self.screen)
         if self.debris is not None:
             self.debris.draw(self.screen)
-        for bullet in self.bullets:
+        for bullet in self.player_bullets:
+            bullet.draw(self.screen)
+        for bullet in self.saucer_bullets:
             bullet.draw(self.screen)
         self.scoreboard.draw(self.screen)
 
-    def check_bullet_collisions(self) -> int:
+    def check_player_bullet_collisions(self) -> tuple[int, bool]:
+        is_saucer_collided = False
         destroyed_asteroid_sizes = []
         collided_asteroids = set()
         collided_bullets = set()
         new_asteroids = []
-        for i, asteroid in enumerate(self.asteroids):
-            for j, bullet in enumerate(self.bullets):
+        for i, bullet in enumerate(self.player_bullets):
+            if self.saucer is not None and self.saucer.rect.colliderect(bullet.rect):
+                collided_bullets.add(i)
+                is_saucer_collided = True
+                continue
+            for j, asteroid in enumerate(self.asteroids):
                 if asteroid.rect.colliderect(bullet.rect):
                     destroyed_asteroid_sizes.append(asteroid.size)
-                    collided_asteroids.add(i)
-                    collided_bullets.add(j)
+                    collided_asteroids.add(j)
+                    collided_bullets.add(i)
                     if asteroid.size > 40:
                         new_asteroids.extend([
                             Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
@@ -329,18 +416,23 @@ class Game:
             asteroid
             for i, asteroid in enumerate(self.asteroids) if i not in collided_asteroids
         ]
-        self.bullets = [
+        self.player_bullets = [
             bullet
-            for j, bullet in enumerate(self.bullets) if j not in collided_bullets
+            for j, bullet in enumerate(self.player_bullets) if j not in collided_bullets
         ]
         self.asteroids.extend(new_asteroids)
-        return destroyed_asteroid_sizes
+        return destroyed_asteroid_sizes, is_saucer_collided
 
     def check_player_collision(self):
         smaller_rect = self.player.rect.copy().scale_by(0.5)
         for asteroid in self.asteroids:
             if asteroid.rect.colliderect(smaller_rect):
                 return True
+        for bullet in self.saucer_bullets:
+            if bullet.rect.colliderect(smaller_rect):
+                return True
+        if self.saucer is not None and self.saucer.rect.colliderect(smaller_rect):
+            return True
         return False
 
     def show_game_over(self):
@@ -371,13 +463,13 @@ class Game:
         ticks = pygame.time.get_ticks()
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (
-                    event.type == pygame.KEYDOWN and pygame.key.get_pressed()[pygame.K_q]):
+                    event.type == pygame.KEYDOWN and pygame.key.get_pressed()[pygame.K_ESCAPE]):
                 self.game_state = GameState.EXITED
                 return
 
         rotation_direction = self.get_rotation_direction(pygame.key.get_pressed())
         is_accelerating = pygame.key.get_pressed()[pygame.K_w]
-        if ticks - self.last_bullet_time >= self.BULLET_COOLDOWN_MS:
+        if ticks - self.last_bullet_time > self.BULLET_COOLDOWN_MS:
             is_shooting = pygame.key.get_pressed()[pygame.K_SPACE]
             if is_shooting:
                 self.last_bullet_time = ticks
@@ -386,20 +478,32 @@ class Game:
             self.draw_frame()
             self.game_state = GameState.RUNNING
         elif self.game_state == GameState.RUNNING:
+            if self.saucer is None and ticks - self.last_saucer_death_time > self.SAUCER_RESPAWN_COOLDOWN_MS:
+                self.saucer = EnemySaucer(self.get_valid_spawn_positions(1)[0])
             if is_shooting:
-                self.bullets.append(Bullet(*self.player.get_new_bullet_params()))
+                self.player_bullets.append(Bullet(*self.player.get_new_bullet_params()))
                 self.sound_mixer.play_shooting()
             self.player.update_orientation(rotation_direction)
             self.player.update_position(is_accelerating)
-            self.bullets = [bullet for bullet in self.bullets if not bullet.is_exhausted()]
-            destroyed_asteroid_sizes = self.check_bullet_collisions()
-            self.scoreboard.increment_score(len(destroyed_asteroid_sizes))
+            self.player_bullets = [bullet for bullet in self.player_bullets if not bullet.is_exhausted()]
+            destroyed_asteroid_sizes, is_saucer_collided = self.check_player_bullet_collisions()
+            self.scoreboard.increment_score(len(destroyed_asteroid_sizes) + 10 * is_saucer_collided)
             if destroyed_asteroid_sizes:
                 self.sound_mixer.play_explosion(max(size for size in destroyed_asteroid_sizes))
-            for bullet in self.bullets:
+            if is_saucer_collided:
+                self.saucer = None
+                self.sound_mixer.play_explosion()
+                self.last_saucer_death_time = ticks
+            for bullet in self.player_bullets + self.saucer_bullets:
                 bullet.update_position()
             for asteroid in self.asteroids:
                 asteroid.update_position()
+            if self.saucer is not None:
+                self.saucer.update_position()
+                bullet_params = self.saucer.maybe_shoot(self.player.get_position())
+                if bullet_params is not None:
+                    self.saucer_bullets.append(Bullet(*bullet_params, color=(192, 0, 0), speed=6))
+            self.saucer_bullets = [bullet for bullet in self.saucer_bullets if not bullet.is_exhausted()]
             self.draw_frame()
             if self.check_player_collision():
                 self.game_state = GameState.GAME_OVER
