@@ -456,6 +456,49 @@ class Game:
             )
             self.screen.blit(text_surface, text_rect)
 
+    def _spawn(self, ticks):
+        if not self.asteroids:
+            self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
+        if self.saucer is None and ticks - self.last_saucer_death_time > self.SAUCER_RESPAWN_COOLDOWN_MS:
+            self.saucer = EnemySaucer(self.get_valid_spawn_positions(1)[0])
+
+    def _generate_bullets(self, is_shooting):
+        if is_shooting:
+            self.player_bullets.append(Bullet(*self.player.get_new_bullet_params()))
+            self.sound_mixer.play_shooting()
+        self.player_bullets = [bullet for bullet in self.player_bullets if not bullet.is_exhausted()]
+
+        if self.saucer is not None:
+            bullet_params = self.saucer.maybe_shoot(self.player.get_position())
+            if bullet_params is not None:
+                self.saucer_bullets.append(Bullet(*bullet_params, color=(192, 0, 0), speed=6))
+        self.saucer_bullets = [bullet for bullet in self.saucer_bullets if not bullet.is_exhausted()]
+
+    def _update_positions(self, is_accelerating, rotation_direction):
+        self.player.update_orientation(rotation_direction)
+        self.player.update_position(is_accelerating)
+        if self.saucer is not None:
+            self.saucer.update_position()
+        for bullet in self.player_bullets + self.saucer_bullets:
+            bullet.update_position()
+        for asteroid in self.asteroids:
+            asteroid.update_position()
+
+    def _process_collisions(self, ticks):
+        destroyed_asteroid_sizes, is_saucer_collided = self.check_player_bullet_collisions()
+        self.scoreboard.increment_score(len(destroyed_asteroid_sizes) + 10 * is_saucer_collided)
+        if destroyed_asteroid_sizes:
+            self.sound_mixer.play_explosion(max(size for size in destroyed_asteroid_sizes))
+        if is_saucer_collided:
+            self.saucer = None
+            self.sound_mixer.play_explosion()
+            self.last_saucer_death_time = ticks
+        is_player_collided = self.check_player_collision()
+        if is_player_collided:
+            self.sound_mixer.play_explosion()
+            self.player.is_dead = True
+            self.debris = Debris(self.player.get_position())
+
     def game_loop(self):
         rotation_direction = 0
         is_accelerating = False
@@ -473,45 +516,18 @@ class Game:
             is_shooting = pygame.key.get_pressed()[pygame.K_SPACE]
             if is_shooting:
                 self.last_bullet_time = ticks
-
         if self.game_state == GameState.STARTING:
             self.draw_frame()
             self.game_state = GameState.RUNNING
         elif self.game_state == GameState.RUNNING:
-            if self.saucer is None and ticks - self.last_saucer_death_time > self.SAUCER_RESPAWN_COOLDOWN_MS:
-                self.saucer = EnemySaucer(self.get_valid_spawn_positions(1)[0])
-            if is_shooting:
-                self.player_bullets.append(Bullet(*self.player.get_new_bullet_params()))
-                self.sound_mixer.play_shooting()
-            self.player.update_orientation(rotation_direction)
-            self.player.update_position(is_accelerating)
-            self.player_bullets = [bullet for bullet in self.player_bullets if not bullet.is_exhausted()]
-            destroyed_asteroid_sizes, is_saucer_collided = self.check_player_bullet_collisions()
-            self.scoreboard.increment_score(len(destroyed_asteroid_sizes) + 10 * is_saucer_collided)
-            if destroyed_asteroid_sizes:
-                self.sound_mixer.play_explosion(max(size for size in destroyed_asteroid_sizes))
-            if is_saucer_collided:
-                self.saucer = None
-                self.sound_mixer.play_explosion()
-                self.last_saucer_death_time = ticks
-            for bullet in self.player_bullets + self.saucer_bullets:
-                bullet.update_position()
-            for asteroid in self.asteroids:
-                asteroid.update_position()
-            if self.saucer is not None:
-                self.saucer.update_position()
-                bullet_params = self.saucer.maybe_shoot(self.player.get_position())
-                if bullet_params is not None:
-                    self.saucer_bullets.append(Bullet(*bullet_params, color=(192, 0, 0), speed=6))
-            self.saucer_bullets = [bullet for bullet in self.saucer_bullets if not bullet.is_exhausted()]
+            self._generate_bullets(is_shooting)
+            self._update_positions(is_accelerating, rotation_direction)
+            self._process_collisions(ticks)
             self.draw_frame()
-            if self.check_player_collision():
+            if self.player.is_dead:
                 self.game_state = GameState.GAME_OVER
-                self.sound_mixer.play_explosion()
-                self.player.is_dead = True
-                self.debris = Debris(self.player.get_position())
-            elif not self.asteroids:
-                self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
+            else:
+                self._spawn(ticks)
         if self.game_state == GameState.GAME_OVER:
             self.debris.update()
             self.draw_frame()
