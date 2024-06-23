@@ -407,10 +407,11 @@ class Game:
                     collided_asteroids.add(j)
                     collided_bullets.add(i)
                     if asteroid.size > 40:
-                        new_asteroids.extend([
-                            Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
-                            for _ in range(2)
-                        ]
+                        new_asteroids.extend(
+                            [
+                                Asteroid(position=asteroid.position, size=asteroid.size * 0.65)
+                                for _ in range(2)
+                            ]
                         )
         self.asteroids = [
             asteroid
@@ -456,12 +457,6 @@ class Game:
             )
             self.screen.blit(text_surface, text_rect)
 
-    def _spawn(self, ticks):
-        if not self.asteroids:
-            self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
-        if self.saucer is None and ticks - self.last_saucer_death_time > self.SAUCER_RESPAWN_COOLDOWN_MS:
-            self.saucer = EnemySaucer(self.get_valid_spawn_positions(1)[0])
-
     def _generate_bullets(self, is_shooting):
         if is_shooting:
             self.player_bullets.append(Bullet(*self.player.get_new_bullet_params()))
@@ -498,6 +493,12 @@ class Game:
             self.sound_mixer.play_explosion()
             self.player.is_dead = True
             self.debris = Debris(self.player.get_position())
+
+    def _spawn(self, ticks):
+        if not self.asteroids:
+            self.asteroids = self.spawn_asteroids(self.NUM_SPAWNED_ASTEROIDS)
+        if self.saucer is None and ticks - self.last_saucer_death_time > self.SAUCER_RESPAWN_COOLDOWN_MS:
+            self.saucer = EnemySaucer(self.get_valid_spawn_positions(1)[0])
 
     def game_loop(self):
         rotation_direction = 0
